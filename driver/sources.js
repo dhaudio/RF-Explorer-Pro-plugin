@@ -9,6 +9,9 @@ import { renderScreen, simulatedSpectrum } from './simulated-screen.js';
 /** Least time between two screen requests: the Pro is a tablet, and the plot
  *  is never redrawn faster than this anyway. */
 const MIN_REQUEST_INTERVAL_MS = 200;
+/** On connecting: the picture counts as complete after this long with no update. */
+const SETTLE_QUIET_MS = 300;
+const SETTLE_MAX_MS = 2_000;
 
 export class VncScreenSource {
   constructor({ host, port = 5900, password = '' }) {
@@ -34,6 +37,14 @@ export class VncScreenSource {
     }
     const got = await this.client.update({ incremental: false, timeoutMs: 8_000 });
     if (!got) throw new RfbError(`the VNC server at ${this.address} sent no picture`);
+    // Some servers deliver a full screen across several updates. Keep taking
+    // them until the picture settles, so nothing is read off a half screen.
+    const settleBy = Date.now() + SETTLE_MAX_MS;
+    while (Date.now() < settleBy) {
+      const more = await this.client.update({ incremental: true, timeoutMs: SETTLE_QUIET_MS });
+      if (this.client.closed) throw new RfbError(`the VNC connection to ${this.address} was lost`);
+      if (!more) break;
+    }
     return this.client.frame();
   }
 

@@ -229,6 +229,25 @@ test('the Pro with its side menu hidden (as used in the field) gives 1181 points
   assert.equal(tr.body.amplitudesDbm.length, 1181);
 });
 
+test('a VNC server that sends the screen in pieces does not cause reconnects', async (t) => {
+  const wide = realScreenWide().data;
+  const other = await startFakeVnc({ frame: () => wide, piecewise: true });
+  t.after(() => other.close());
+  const id = `net:${other.host}:piecewise`;
+  const path = `/devices/${encodeURIComponent(id)}`;
+  const add = await request('POST', '/devices', { id, product: PRODUCT, config: { host: other.host, port: other.port } });
+  assert.equal(add.status, 201);
+  t.after(() => request('DELETE', path));
+  const first = await configure({}, path);
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.pointCount, 1181);
+  const second = await configure({ startHz: 500e6, stopHz: 600e6 }, path);
+  assert.equal(second.status, 200, JSON.stringify(second.body));
+  const d = await listed(id);
+  assert.notEqual(d.status.status, 'failed', JSON.stringify(d.status));
+  assert.equal((d.capabilities ?? {}).minFrequencyHz, 469_811_000, 'opened with the range read off the screen');
+});
+
 test('a frozen screen (Hold on the Pro) raises a critical warning', async (t) => {
   clearInterval(animate);
   await configure({ startHz: 0, stopHz: 1e10 });

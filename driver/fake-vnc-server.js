@@ -11,7 +11,11 @@ import { vncAuthResponse } from './des.js';
  * startFakeVnc({ width, height, frame }) where frame() returns the current
  * screen as B, G, R, X bytes. Call `changed()` after the screen changes.
  */
-export async function startFakeVnc({ width = 1280, height = 800, frame, password = null, version: rfb = '3.8' } = {}) {
+/**
+ * piecewise: like some real servers, answer a full-screen request with the
+ * screen split across several updates (top part first), not all at once.
+ */
+export async function startFakeVnc({ width = 1280, height = 800, frame, password = null, version: rfb = '3.8', piecewise = false } = {}) {
   let version = 0;
   const clients = new Set();
 
@@ -138,7 +142,13 @@ export async function startFakeVnc({ width = 1280, height = 800, frame, password
             };
             const incremental = buf[1] === 1;
             buf = buf.subarray(10);
-            if (!incremental || client.sent !== version) sendRegion(region);
+            if (piecewise && !incremental && region.h > 200) {
+              // first the top part only; the rest follows in later updates
+              const top = Math.floor(region.h / 3);
+              sendRegion({ ...region, h: top });
+              setTimeout(() => sendRegion({ ...region, y: region.y + top, h: top }), 30);
+              setTimeout(() => sendRegion({ ...region, y: region.y + 2 * top, h: region.h - 2 * top }), 60);
+            } else if (!incremental || client.sent !== version) sendRegion(region);
             else client.pending.push(region);
           } else if (type === 4) {
             if (buf.length < 8) return;

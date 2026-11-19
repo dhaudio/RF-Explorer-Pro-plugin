@@ -212,6 +212,9 @@ class RfExplorerProAdapter {
         if (!(err instanceof AxesUnreadable)) throw err;
       }
       const plotNow = now?.plot ?? findPlot(frame);
+      if (now && !this.screenAxes && this.adoptAxes(now)) {
+        // unreadable at open, readable now: take them, no reconnect needed
+      }
       const changed =
         (now && !sameAxes(now, this.screenAxes)) ||
         (plotNow && this.plot && plotNow.right !== this.plot.right);
@@ -326,6 +329,10 @@ class RfExplorerProAdapter {
           continue;
         }
         pendingPlot = null;
+        if (seen && !this.screenAxes && this.adoptAxes(seen)) {
+          // the labels were unreadable until now: take them without reconnecting
+          this.clearWarning('axes');
+        }
         if (seen && !sameAxes(seen, this.screenAxes)) {
           // two frames in a row, so a label caught mid-redraw is not taken for a change
           if (pendingAxes && sameAxes(seen, pendingAxes)) {
@@ -364,6 +371,20 @@ class RfExplorerProAdapter {
     })().catch((err) => {
       if (current()) this.onFatal?.(err);
     });
+  }
+
+  /**
+   * Take axes read for the first time since open(). Allowed only when the
+   * plot has the width it had at open (so the point count the shell knows
+   * stays right); otherwise the device has to reopen.
+   */
+  adoptAxes(axes) {
+    if (this.plot && axes.plot.right !== this.plot.right) return false;
+    this.screenAxes = axes;
+    this.plot = axes.plot;
+    logLine('info', `axis labels read: ${MHZ(axes.startHz)}-${MHZ(axes.stopHz)} MHz, ` +
+      `${axes.topDbm} to ${axes.bottomDbm} dBm`);
+    return true;
   }
 
   axesFullyManual() {
