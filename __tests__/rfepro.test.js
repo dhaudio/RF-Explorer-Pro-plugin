@@ -114,7 +114,7 @@ test('asking beyond the Pro\'s span is clamped to it, and a part of it is cut ou
   assert.equal(part.status, 200);
   assert.ok(part.body.startHz >= 500e6 && part.body.startHz < 500.3e6, part.body.startHz);
   assert.ok(part.body.stopHz <= 600e6 && part.body.stopHz > 599.7e6, part.body.stopHz);
-  assert.ok(part.body.pointCount > 390 && part.body.pointCount < 400, String(part.body.pointCount));
+  assert.ok(part.body.pointCount > 390 && part.body.pointCount < 400, String(part.body.pointCount)); // the columns in 500-600 MHz
 });
 
 test('live traces flow, with the length and levels of the real screen', async (t) => {
@@ -129,11 +129,14 @@ test('live traces flow, with the length and levels of the real screen', async (t
   assert.equal(pro.inputEvents(), 0, 'the plugin must never click or type on the Pro');
 });
 
-test('fewer points keep every peak', async (t) => {
-  await configure({ startHz: 0, stopHz: 1e10, pointCount: 100 });
+test('the point count is the screen\'s: requests for fewer points are ignored', async (t) => {
+  const caps = (await listed(DEVICE_ID)).capabilities;
+  assert.equal(caps.autoPointCount, true);
+  const r = await configure({ startHz: 0, stopHz: 1e10, pointCount: 100 });
+  assert.equal(r.body.pointCount, 911);
   await sweeping(t);
   const tr = await traceAfter();
-  assert.equal(tr.body.amplitudesDbm.length, 100);
+  assert.equal(tr.body.amplitudesDbm.length, 911);
   assert.equal(Math.max(...tr.body.amplitudesDbm).toFixed(2), '-45.56');
 });
 

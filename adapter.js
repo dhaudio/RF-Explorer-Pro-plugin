@@ -166,6 +166,9 @@ class RfExplorerProAdapter {
       capabilities: {
         minFrequencyHz: lo,
         maxFrequencyHz: hi,
+        // one point per column of the Pro's plot, always: the screen sets the
+        // resolution, so SoundBase offers no point-count control
+        autoPointCount: true,
         controls: [
           {
             id: 'detector', type: 'dropdown', label: 'Screen detector', default: 'peak',
@@ -246,10 +249,9 @@ class RfExplorerProAdapter {
     last = Math.min(Math.max(last, first + 1), COLUMNS - 1);
     const columns = last - first + 1;
 
-    let points = columns;
-    if (isNum(cfg.pointCount)) points = Math.round(cfg.pointCount);
-    else if (isNum(cfg.stepHz) && cfg.stepHz > 0) points = Math.round((wantStop - wantStart) / cfg.stepHz) + 1;
-    points = Math.min(Math.max(points, 2), columns); // never more points than the screen has
+    // autoPointCount: every column of the plot is a point; a requested point
+    // count or step is ignored, and the echo says what the screen gives
+    const points = columns;
 
     this.effective = {
       startHz: Math.round(columnHz(ax, first)),
