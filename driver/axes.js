@@ -74,6 +74,12 @@ function classify(frame, y0, a, b) {
 
 /** The number written from the first glyph in [x0, x1) on rows [y0, y0+9). */
 export function readNumber(frame, y0, x0, x1) {
+  const text = readDigits(frame, y0, x0, x1);
+  return text === null ? null : Number(text);
+}
+
+/** Like readNumber, but the text as written ("1.30" stays "1.30"). */
+export function readDigits(frame, y0, x0, x1) {
   let text = '';
   let prev = null;
   for (const [a, b] of segments(frame, y0, y0 + LINE_HEIGHT, x0, x1)) {
@@ -84,7 +90,13 @@ export function readNumber(frame, y0, x0, x1) {
     prev = b;
   }
   if (!/^-?\d+(\.\d+)?$/.test(text)) return null;
-  return Number(text);
+  return text;
+}
+
+/** The firmware version the Pro shows top left ("RFEPro v1.25"), or null. */
+export function readFirmware(frame) {
+  const text = readDigits(frame, 10, 76, 110);
+  return text && /^\d+\.\d+$/.test(text) ? text : null;
 }
 
 /** Top row of the 9-row label band nearest y, or null. */

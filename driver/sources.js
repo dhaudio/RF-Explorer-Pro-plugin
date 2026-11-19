@@ -6,10 +6,15 @@ import { RfbClient, RfbError } from './rfb.js';
 import { PLOT, SCREEN } from './layout.js';
 import { renderScreen, simulatedSpectrum } from './simulated-screen.js';
 
+/** Least time between two screen requests: the Pro is a tablet, and the plot
+ *  is never redrawn faster than this anyway. */
+const MIN_REQUEST_INTERVAL_MS = 200;
+
 export class VncScreenSource {
   constructor({ host, port = 5900, password = '' }) {
     this.client = new RfbClient({ host, port, password });
     this.onClose = null;
+    this.lastRequest = 0;
   }
 
   get address() {
@@ -51,8 +56,11 @@ export class VncScreenSource {
     const deadline = Date.now() + timeoutMs;
     this.lastHash ??= this.plotHash();
     for (;;) {
+      const pause = this.lastRequest + MIN_REQUEST_INTERVAL_MS - Date.now();
+      if (pause > 0) await new Promise((resolve) => setTimeout(resolve, pause));
       const left = deadline - Date.now();
       if (left <= 0) return false;
+      this.lastRequest = Date.now();
       await this.client.update({ incremental: true, timeoutMs: left });
       if (this.client.closed) throw new RfbError(`the VNC connection to ${this.address} was lost`);
       const h = this.plotHash();

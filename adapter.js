@@ -15,7 +15,7 @@
 // The span, RBW and reference level are set on the Pro. SoundBase can show
 // any part of the span the Pro displays; asking for more is clamped to it.
 
-import { AxesUnreadable, readAxes, sameAxes } from './driver/axes.js';
+import { AxesUnreadable, readAxes, readFirmware, sameAxes } from './driver/axes.js';
 import { COLUMNS, PLOT } from './driver/layout.js';
 import { SimulatedScreenSource, VncScreenSource } from './driver/sources.js';
 import { TraceNotFound, columnHz, extractTrace, resamplePeak } from './driver/trace.js';
@@ -26,8 +26,12 @@ export const SIMULATED_DEVICE_ID = 'sim:rfepro';
 
 /** Frames without a readable trace or axes before a warning is shown. */
 const BAD_FRAMES_BEFORE_WARNING = 3;
-/** No new picture for this long while sweeping: the Pro is paused. */
+/** No new picture for this long while sweeping: the Pro is paused. Slow
+ *  sweeps (wide span, narrow RBW) get more time: four sweep times at least. */
+const FROZEN_SWEEPS = 4;
 const frozenMs = () => Number(process.env.SB_RFEPRO_FROZEN_MS) || 10_000;
+/** The layout in driver/layout.js was measured on this firmware. */
+const TESTED_FIRMWARE = '1.25';
 const simFrameMs = () => Number(process.env.SB_RFEPRO_SIM_FRAME_MS) || 1_400;
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -88,6 +92,7 @@ class RfExplorerProAdapter {
     this.sweeping = false;
     this.warnings = new Map();
     this.sweepMs = null;
+    this.generation = 0; // bumped on every start/stop, so an old sweep loop never outlives its session
     // assigned by the shell: onFatal, onWarnings
   }
 
@@ -130,6 +135,10 @@ class RfExplorerProAdapter {
     this.source.onClose = (err) => {
       if (this.source) this.onFatal?.(err);
     };
+    this.firmware = readFirmware(frame);
+    if (this.firmware && this.firmware !== TESTED_FIRMWARE) {
+      logLine('warn', `firmware ${this.firmware}: the screen layout was measured on ${TESTED_FIRMWARE}`);
+    }
 
     try {
       this.screenAxes = readAxes(frame);
@@ -181,7 +190,7 @@ class RfExplorerProAdapter {
       identity: {
         manufacturer: 'RF Explorer',
         model: 'RF Explorer Pro',
-        firmware: 'screen layout 1.25',
+        firmware: this.firmware ?? 'unknown',
       },
     };
   }
@@ -251,24 +260,26 @@ class RfExplorerProAdapter {
   async startSweep(onTrace) {
     if (this.sweeping) return;
     this.sweeping = true;
+    const generation = ++this.generation;
     const source = this.source;
+    const current = () => this.sweeping && this.generation === generation && this.source === source;
     (async () => {
       let lastChange = Date.now();
       let badAxes = 0;
       let badTrace = 0;
       let pendingAxes = null;
-      while (this.sweeping && this.source === source) {
+      while (current()) {
         let changed;
         try {
           changed = await source.next(2_000);
         } catch (err) {
-          if (this.sweeping) this.onFatal?.(err);
+          if (current()) this.onFatal?.(err);
           return;
         }
-        if (!this.sweeping || this.source !== source) return;
+        if (!current()) return;
         const now = Date.now();
         if (!changed) {
-          if (now - lastChange > frozenMs()) {
+          if (now - lastChange > Math.max(frozenMs(), FROZEN_SWEEPS * (this.sweepMs ?? 0))) {
             this.setWarning('frozen', 'critical',
               'The RF Explorer Pro\'s screen has not changed for a while, so the trace is not live. ' +
               'Press LIVE on the Pro if it is on Hold or replaying, and keep it on the analyzer screen.');
@@ -333,7 +344,7 @@ class RfExplorerProAdapter {
         onTrace(resamplePeak(part, eff.pointCount));
       }
     })().catch((err) => {
-      if (this.sweeping) this.onFatal?.(err);
+      if (current()) this.onFatal?.(err);
     });
   }
 
@@ -344,10 +355,12 @@ class RfExplorerProAdapter {
 
   async stopSweep() {
     this.sweeping = false;
+    this.generation += 1;
   }
 
   async close() {
     this.sweeping = false;
+    this.generation += 1;
     const source = this.source;
     this.source = null;
     source?.close();

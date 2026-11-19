@@ -107,3 +107,53 @@ test('an unreachable address fails with a specific message', async () => {
   const client = new RfbClient({ host: '127.0.0.1', port: 1, timeoutMs: 2_000 });
   await assert.rejects(client.connect(), /cannot reach the VNC server at 127\.0\.0\.1:1/);
 });
+
+test('DES matches the FIPS test vector and VNC password answers match vncdotool', async () => {
+  const { desEncryptBlock, vncAuthResponse } = await import('../driver/des.js');
+  const c = desEncryptBlock(Buffer.from('133457799BBCDFF1', 'hex'), Buffer.from('0123456789ABCDEF', 'hex'));
+  assert.equal(c.toString('hex'), '85e813540f0ab405');
+  // reference values computed with vncdotool's own implementation
+  assert.equal(
+    vncAuthResponse(Buffer.from('00112233445566778899aabbccddeeff', 'hex'), 'secret12').toString('hex'),
+    '817402416b165d7ade9c46b5faa42370'
+  );
+  assert.equal(
+    vncAuthResponse(Buffer.from('ffeeddccbbaa99887766554433221100', 'hex'), 'ab').toString('hex'),
+    '857d0c0a27d67b209daa03952f48bf11'
+  );
+});
+
+for (const version of ['3.3', '3.7', '3.8']) {
+  for (const password of [null, 'p4ssw0rd']) {
+    test(`RFB ${version} ${password ? 'with a VNC password' : 'without a password'} connects`, async (t) => {
+      const screen = realScreen().data;
+      const server = await startFakeVnc({ frame: () => screen, version, password });
+      t.after(() => server.close());
+      const client = new RfbClient({ host: server.host, port: server.port, password: password ?? '' });
+      await client.connect();
+      t.after(() => client.close());
+      assert.equal(await client.update({ incremental: false }), true);
+      assert.deepEqual(readAxes(client.frame()), REAL_AXES);
+    });
+  }
+}
+
+test('a wrong VNC password and a missing one are reported clearly', async (t) => {
+  const screen = realScreen().data;
+  const server = await startFakeVnc({ frame: () => screen, password: 'right' });
+  t.after(() => server.close());
+  await assert.rejects(
+    new RfbClient({ host: server.host, port: server.port, password: 'wrong' }).connect(),
+    /VNC password rejected/
+  );
+  await assert.rejects(
+    new RfbClient({ host: server.host, port: server.port }).connect(),
+    /asks for a password/
+  );
+});
+
+test('the firmware version is read from the screen', async () => {
+  const { readFirmware } = await import('../driver/axes.js');
+  assert.equal(readFirmware(realScreen()), '1.25');
+  assert.equal(readFirmware({ width: 1280, height: 800, data: new Uint8Array(1280 * 800 * 4) }), null);
+});

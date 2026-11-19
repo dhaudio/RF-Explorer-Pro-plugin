@@ -6,7 +6,7 @@
 // must not touch it.
 
 import net from 'node:net';
-import crypto from 'node:crypto';
+import { vncAuthResponse } from './des.js';
 
 const ENC_RAW = 0;
 const ENC_DESKTOP_SIZE = -223;
@@ -54,31 +54,6 @@ class Reader {
     this.chunks = buf.length > n ? [buf.subarray(n)] : [];
     this.length = buf.length - n;
     return buf.subarray(0, n);
-  }
-}
-
-/** VNC authentication: DES with each key byte bit-reversed. Needs DES in the
- *  runtime's OpenSSL; most VNC servers on the Pro run without a password. */
-function vncAuthResponse(challenge, password) {
-  const key = Buffer.alloc(8);
-  for (let i = 0; i < 8; i += 1) {
-    let c = i < password.length ? password.charCodeAt(i) & 0xff : 0;
-    let r = 0;
-    for (let b = 0; b < 8; b += 1) {
-      r = (r << 1) | (c & 1);
-      c >>= 1;
-    }
-    key[i] = r;
-  }
-  try {
-    const cipher = crypto.createCipheriv('des-ecb', key, null);
-    cipher.setAutoPadding(false);
-    return Buffer.concat([cipher.update(challenge), cipher.final()]);
-  } catch {
-    throw new RfbError(
-      'the VNC server asks for a password and this computer cannot compute the VNC password check; ' +
-        'remove the VNC password on the RF Explorer Pro'
-    );
   }
 }
 
@@ -155,6 +130,9 @@ export class RfbClient {
       this.socket.write(Buffer.from([security]));
     }
     if (security === 2) {
+      if (!this.password) {
+        throw new RfbError('the VNC server asks for a password: type it in the device settings');
+      }
       const challenge = await r.read(16);
       this.socket.write(vncAuthResponse(challenge, this.password));
     }

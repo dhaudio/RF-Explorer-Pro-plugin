@@ -12,13 +12,17 @@ plugin watches the screen over VNC (read-only: it must never send a key or
 pointer event) and reads the analyzer plot.
 
 - `driver/rfb.js` is a minimal RFB client: 32-bit raw pixels, incremental
-  updates of the whole screen (some servers never answer a partial request).
+  updates of the whole screen (some servers never answer a partial request),
+  paced to one request per 200 ms. VNC password auth uses `driver/des.js`,
+  because Node's OpenSSL 3 has no DES.
 - `driver/axes.js` reads the axis labels by matching glyphs from
   `driver/glyphs.js`, and validates them (even dBm steps, centre = mid-span).
 - `driver/trace.js` takes the yellow real-time trace, one point per plot column.
 - `driver/layout.js` holds the screen geometry for firmware 1.25 (1280x800).
 - A range change on the Pro is noticed while sweeping and in `applyConfig`;
   the adapter calls `onFatal` so the device reopens with new capabilities.
+- Each sweep loop is tied to its start (`generation`): a stop/start must never
+  leave an older loop delivering traces.
 - `__tests__/fixtures/` holds a real Pro screenshot; keep the tests on it
   passing. `npm run probe -- <ip>` runs the driver against a real unit.
 

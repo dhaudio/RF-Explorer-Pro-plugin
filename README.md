@@ -23,7 +23,9 @@ por VNC **solo para mirar** (nunca pulsa ni escribe nada en el Pro) y:
    configurar nada;
 2. **lee la traza amarilla** en tiempo real: un punto por columna del gráfico,
    911 puntos en el rango que muestre el Pro;
-3. si **cambias el rango en el Pro**, lo detecta y se reconecta con el nuevo.
+3. si **cambias el rango en el Pro**, lo detecta y se reconecta con el nuevo;
+4. lee también la **versión del firmware** que muestra el Pro, y la indica como
+   firmware del equipo.
 
 Cada lectura de los ejes se comprueba antes de usarla: los once niveles de dBm
 tienen que estar equiespaciados y la frecuencia central tiene que quedar justo
@@ -43,7 +45,9 @@ entre inicio y fin. Si algo no cuadra, el plugin lo dice en vez de adivinar.
 
 1. Instala el plugin y, en el plot, abre el engranaje de **live scan**.
 2. En *Select a device*, elige **RF Explorer Pro (by address)** y escribe la
-   **IP del Pro**. El puerto VNC es 5900; la contraseña VNC se deja vacía.
+   **IP del Pro**. El puerto VNC es 5900. Si le pusiste contraseña al VNC del
+   Pro (recomendable: sin ella, cualquiera en la red puede manejarlo),
+   escríbela; si no, déjala vacía.
 3. **Save** y **Live**.
 
 En los controles del live scan aparecen:
@@ -101,6 +105,7 @@ ni un clic al equipo.
 ```
 adapter.js                  el analizador para SoundBase
 driver/rfb.js               cliente VNC mínimo (RFB 3.3/3.7/3.8, solo mirar)
+driver/des.js               cifrado de la contraseña VNC (no depende de OpenSSL)
 driver/axes.js              lectura de los números de los ejes
 driver/glyphs.js            la fuente de los números del Pro
 driver/trace.js             píxeles → traza en dBm

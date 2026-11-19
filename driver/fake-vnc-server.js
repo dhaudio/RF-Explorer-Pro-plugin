@@ -1,14 +1,17 @@
 // A VNC server that shows a given screen, for tests: the plugin connects to it
-// exactly as it would to an RF Explorer Pro. RFB 3.8, no authentication,
-// raw encoding only (all the plugin asks for).
+// exactly as it would to an RF Explorer Pro. Speaks RFB 3.3, 3.7 or 3.8, with
+// no authentication or with a VNC password (checked for real), raw encoding
+// only (all the plugin asks for).
 
 import net from 'node:net';
+import crypto from 'node:crypto';
+import { vncAuthResponse } from './des.js';
 
 /**
  * startFakeVnc({ width, height, frame }) where frame() returns the current
  * screen as B, G, R, X bytes. Call `changed()` after the screen changes.
  */
-export async function startFakeVnc({ width = 1280, height = 800, frame, password = null } = {}) {
+export async function startFakeVnc({ width = 1280, height = 800, frame, password = null, version: rfb = '3.8' } = {}) {
   let version = 0;
   const clients = new Set();
 
@@ -19,7 +22,21 @@ export async function startFakeVnc({ width = 1280, height = 800, frame, password
     socket.on('error', () => {});
     let buf = Buffer.alloc(0);
     let stage = 'version';
-    socket.write('RFB 003.008\n');
+    let challenge = null;
+    socket.write(`RFB 003.00${rfb.split('.')[1]}\n`);
+    const ok = () => socket.write(Buffer.from([0, 0, 0, 0]));
+    const fail = (why) => {
+      const b = Buffer.from(why);
+      const len = Buffer.alloc(4);
+      len.writeUInt32BE(b.length);
+      socket.write(Buffer.concat([Buffer.from([0, 0, 0, 1]), rfb === '3.8' ? Buffer.concat([len, b]) : Buffer.alloc(0)]));
+      socket.end();
+    };
+    const sendChallenge = () => {
+      challenge = crypto.randomBytes(16);
+      socket.write(challenge);
+      stage = 'auth';
+    };
 
     const sendRegion = ({ x, y, w, h }) => {
       const screen = frame();
@@ -50,23 +67,37 @@ export async function startFakeVnc({ width = 1280, height = 800, frame, password
         if (stage === 'version') {
           if (buf.length < 12) return;
           buf = buf.subarray(12);
-          socket.write(Buffer.from(password ? [1, 2] : [1, 1]));
-          stage = 'security';
+          if (rfb === '3.3') {
+            // 3.3: the server decides the security type, as a 32-bit word
+            socket.write(Buffer.from([0, 0, 0, password ? 2 : 1]));
+            if (password) sendChallenge();
+            else stage = 'init';
+          } else {
+            socket.write(Buffer.from(password ? [1, 2] : [1, 1]));
+            stage = 'security';
+          }
         } else if (stage === 'security') {
           if (buf.length < 1) return;
           const chosen = buf[0];
           buf = buf.subarray(1);
-          if (chosen === 2) {
-            socket.write(Buffer.alloc(16, 7)); // challenge; the reply is not checked
-            stage = 'auth';
-          } else {
-            socket.write(Buffer.from([0, 0, 0, 0]));
+          if (chosen === 2 && password) {
+            sendChallenge();
+          } else if (chosen === 1 && !password) {
+            if (rfb === '3.8') ok();
             stage = 'init';
+          } else {
+            fail('security type not offered');
+            return;
           }
         } else if (stage === 'auth') {
           if (buf.length < 16) return;
+          const answer = buf.subarray(0, 16);
           buf = buf.subarray(16);
-          socket.write(Buffer.from([0, 0, 0, 0]));
+          if (!answer.equals(vncAuthResponse(challenge, password))) {
+            fail('wrong password');
+            return;
+          }
+          ok();
           stage = 'init';
         } else if (stage === 'init') {
           if (buf.length < 1) return;
