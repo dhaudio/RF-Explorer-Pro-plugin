@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { startFakeVnc } from '../driver/fake-vnc-server.js';
 import { renderScreen, simulatedSpectrum } from '../driver/simulated-screen.js';
-import { realScreen } from './helpers.js';
+import { realScreen, realScreenWide } from './helpers.js';
 
 process.env.SB_RFEPRO_MOCK = '1';
 process.env.SB_RFEPRO_SIM_FRAME_MS = '60';
@@ -202,6 +202,31 @@ test('a screen without labels says so, and manual axis values make it work', asy
   const tr = await traceAfter(0, path);
   assert.equal(tr.status, 200);
   assert.equal(Math.max(...tr.body.amplitudesDbm).toFixed(2), '-45.56');
+});
+
+test('the Pro with its side menu hidden (as used in the field) gives 1181 points', async (t) => {
+  const wide = realScreenWide().data;
+  const other = await startFakeVnc({ frame: () => wide });
+  t.after(() => other.close());
+  const timer = setInterval(() => {
+    wide[(300 * 1280 + 700) * 4 + 1] ^= 1;
+    other.changed();
+  }, 80);
+  t.after(() => clearInterval(timer));
+  const id = `net:${other.host}:wide`;
+  const path = `/devices/${encodeURIComponent(id)}`;
+  const add = await request('POST', '/devices', { id, product: PRODUCT, config: { host: other.host, port: other.port } });
+  assert.equal(add.status, 201);
+  t.after(() => request('DELETE', path));
+  const { status, body } = await configure({}, path);
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.startHz, 469_811_000);
+  assert.equal(body.stopHz, 900_011_000);
+  assert.equal(body.pointCount, 1181);
+  await sweeping(t, path);
+  const tr = await traceAfter(0, path);
+  assert.equal(tr.status, 200);
+  assert.equal(tr.body.amplitudesDbm.length, 1181);
 });
 
 test('a frozen screen (Hold on the Pro) raises a critical warning', async (t) => {

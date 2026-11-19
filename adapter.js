@@ -16,7 +16,7 @@
 // any part of the span the Pro displays; asking for more is clamped to it.
 
 import { AxesUnreadable, readAxes, readFirmware, sameAxes } from './driver/axes.js';
-import { COLUMNS, PLOT } from './driver/layout.js';
+import { columnsOf, findPlot } from './driver/layout.js';
 import { SimulatedScreenSource, VncScreenSource } from './driver/sources.js';
 import { TraceNotFound, columnHz, extractTrace, resamplePeak } from './driver/trace.js';
 
@@ -62,8 +62,9 @@ export function createSpectrumAnalyzerAdapter(device, pluginConfig = {}) {
   return new RfExplorerProAdapter(device, pluginConfig);
 }
 
-/** Manual axis values typed into the controls take precedence over the screen. */
-function withOverrides(screenAxes, controls = {}) {
+/** Manual axis values typed into the controls take precedence over the
+ *  screen. The plot rectangle always comes from the screen. */
+function withOverrides(screenAxes, controls = {}, plot = null) {
   const pick = (id) => (isNum(controls[id]) ? controls[id] : null);
   const manual = {
     startHz: pick('axisStartMHz') === null ? null : Math.round(pick('axisStartMHz') * 1e6),
@@ -77,7 +78,8 @@ function withOverrides(screenAxes, controls = {}) {
   }
   if (Object.values(merged).some((v) => v === null)) return null;
   if (!(merged.stopHz > merged.startHz) || !(merged.topDbm > merged.bottomDbm)) return null;
-  return merged;
+  merged.plot = screenAxes?.plot ?? plot;
+  return merged.plot ? merged : null;
 }
 
 class RfExplorerProAdapter {
@@ -86,6 +88,7 @@ class RfExplorerProAdapter {
     this.pluginConfig = pluginConfig;
     this.source = null;
     this.screenAxes = null; // what the Pro's labels say
+    this.plot = null; // the plot rectangle on the Pro's screen
     this.controls = {};
     this.axes = null; // in force: screen labels plus any manual values
     this.effective = null; // { startHz, stopHz, pointCount, first, last }
@@ -140,6 +143,7 @@ class RfExplorerProAdapter {
       logLine('warn', `firmware ${this.firmware}: the screen layout was measured on ${TESTED_FIRMWARE}`);
     }
 
+    this.plot = findPlot(frame);
     try {
       this.screenAxes = readAxes(frame);
     } catch (err) {
@@ -147,7 +151,7 @@ class RfExplorerProAdapter {
       this.screenAxes = null;
       logLine('warn', `axis labels unreadable at open: ${err.message}`);
     }
-    this.axes = withOverrides(this.screenAxes, this.controls);
+    this.axes = withOverrides(this.screenAxes, this.controls, this.plot);
     if (this.axes) {
       logLine('info', `${this.source.address}: ${MHZ(this.axes.startHz)}-${MHZ(this.axes.stopHz)} MHz, ` +
         `${this.axes.topDbm} to ${this.axes.bottomDbm} dBm`);
@@ -200,30 +204,34 @@ class RfExplorerProAdapter {
     // the range may have been changed on the Pro since open(): look again
     if (this.source && !this.sweeping) {
       await this.source.refresh();
+      const frame = this.source.frame();
       let now = null;
       try {
-        now = readAxes(this.source.frame());
+        now = readAxes(frame);
       } catch (err) {
         if (!(err instanceof AxesUnreadable)) throw err;
       }
-      if (now && !sameAxes(now, this.screenAxes)) {
-        const err = new Error(
-          `The RF Explorer Pro now shows ${MHZ(now.startHz)}-${MHZ(now.stopHz)} MHz. ` +
-            'Reconnecting to use the new range.'
-        );
+      const plotNow = now?.plot ?? findPlot(frame);
+      const changed =
+        (now && !sameAxes(now, this.screenAxes)) ||
+        (plotNow && this.plot && plotNow.right !== this.plot.right);
+      if (changed) {
+        const err = changeError(now, plotNow);
         this.onFatal?.(err);
         throw err;
       }
+      if (!this.plot && plotNow) this.plot = plotNow;
     }
     this.controls = { ...(cfg.controls ?? {}) };
     this.detector = this.controls.detector === 'center' ? 'center' : 'peak';
-    this.axes = withOverrides(this.screenAxes, this.controls);
+    this.axes = withOverrides(this.screenAxes, this.controls, this.plot);
     if (!this.axes) {
       this.setWarning('axes', 'critical', unreadableMessage());
       throw new Error(unreadableMessage());
     }
     this.clearWarning('axes');
     const ax = this.axes;
+    const COLUMNS = columnsOf(ax.plot);
     const step = (ax.stopHz - ax.startHz) / (COLUMNS - 1);
 
     // the part of the Pro's span asked for, snapped to whole plot columns
@@ -268,6 +276,7 @@ class RfExplorerProAdapter {
       let badAxes = 0;
       let badTrace = 0;
       let pendingAxes = null;
+      let pendingPlot = null;
       while (current()) {
         let changed;
         try {
@@ -306,15 +315,24 @@ class RfExplorerProAdapter {
               'Close any menu or dialog on the Pro.');
           }
         }
+        const plotNow = seen?.plot ?? findPlot(frame);
+        if (!seen && plotNow && this.plot && plotNow.right !== this.plot.right) {
+          // the side menu was shown or hidden: the plot has another width
+          if (pendingPlot === plotNow.right) {
+            this.onFatal?.(changeError(null, plotNow));
+            return;
+          }
+          pendingPlot = plotNow.right;
+          continue;
+        }
+        pendingPlot = null;
         if (seen && !sameAxes(seen, this.screenAxes)) {
           // two frames in a row, so a label caught mid-redraw is not taken for a change
           if (pendingAxes && sameAxes(seen, pendingAxes)) {
             this.screenAxes = seen;
             if (!this.axesFullyManual()) {
               logLine('info', `range changed on the Pro: ${MHZ(seen.startHz)}-${MHZ(seen.stopHz)} MHz`);
-              this.onFatal?.(new Error(
-                `The RF Explorer Pro now shows ${MHZ(seen.startHz)}-${MHZ(seen.stopHz)} MHz. ` +
-                'Reconnecting to use the new range.'));
+              this.onFatal?.(changeError(seen, seen.plot));
               return;
             }
           }
@@ -367,6 +385,15 @@ class RfExplorerProAdapter {
   }
 }
 
+/** The error that makes SoundBase reopen the device after the Pro's screen changed. */
+function changeError(axes, plot) {
+  const what = axes
+    ? `now shows ${MHZ(axes.startHz)}-${MHZ(axes.stopHz)} MHz`
+    : 'shows its plot at another width (side menu shown or hidden)';
+  const points = plot ? `, ${columnsOf(plot)} points` : '';
+  return new Error(`The RF Explorer Pro ${what}${points}. Reconnecting to use it.`);
+}
+
 function unreadableMessage() {
   return (
     'The plugin cannot read the frequency and level labels on the RF Explorer Pro\'s screen. ' +
@@ -376,4 +403,4 @@ function unreadableMessage() {
 }
 
 // Exported for the tests.
-export const _internals = { withOverrides, PLOT };
+export const _internals = { withOverrides };

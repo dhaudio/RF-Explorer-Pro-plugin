@@ -22,7 +22,9 @@ por VNC **solo para mirar** (nunca pulsa ni escribe nada en el Pro) y:
    y los dBm de arriba abajo), así que el rango sale del propio Pro, sin
    configurar nada;
 2. **lee la traza amarilla** en tiempo real: un punto por columna del gráfico,
-   911 puntos en el rango que muestre el Pro;
+   en el rango que muestre el Pro. Son **1181 puntos con el menú lateral del
+   Pro oculto** y 911 con él visible (el gráfico es más estrecho), y el
+   plugin detecta solo cuál de las dos disposiciones hay;
 3. si **cambias el rango en el Pro**, lo detecta y se reconecta con el nuevo;
 4. lee también la **versión del firmware** que muestra el Pro, y la indica como
    firmware del equipo.
@@ -62,10 +64,13 @@ En los controles del live scan aparecen:
 
 ## Limitaciones
 
-- **La resolución es la de la pantalla**: 911 puntos en el rango del Pro, sea
-  cual sea el número de puntos de su barrido. Con 430 MHz de span son ~473 kHz
-  por punto; con ~91 MHz, ~100 kHz. Para más resolución, estrecha el span en el
-  Pro. La amplitud queda en pasos de ~0,22 dB (un píxel).
+- **La resolución es la de la pantalla**: 1181 puntos en el rango del Pro con
+  el menú lateral oculto (911 con él visible), sea cual sea el número de puntos
+  de su barrido. Con 430 MHz de span son ~365 kHz por punto; con ~118 MHz,
+  ~100 kHz. Para más resolución, oculta el menú lateral y estrecha el span en
+  el Pro. La amplitud queda en pasos de ~0,22 dB (un píxel).
+- **Si muestras u ocultas el menú lateral del Pro**, el gráfico cambia de ancho
+  y el plugin se reconecta solo con el nuevo número de puntos.
 - **Solo lectura**: el span, la RBW y el nivel de referencia se cambian en el
   Pro. En SoundBase se puede ver cualquier parte del span del Pro, pero no más.
 - **Las líneas de los marcadores tapan columnas**; esas columnas se rellenan
@@ -96,9 +101,9 @@ Dentro de SoundBase, activa **Simulated RF Explorer Pro** en los ajustes del
 plugin. El Pro simulado dibuja su pantalla como uno real (ejes con su fuente,
 traza amarilla), así que pasa por la misma lectura que un equipo de verdad.
 
-Los tests usan una **captura real** de un RF Explorer Pro
-(`__tests__/fixtures/`), y comprueban que el plugin nunca envía ni una pulsación
-ni un clic al equipo.
+Los tests usan **dos capturas reales** de un RF Explorer Pro, con y sin el menú
+lateral (`__tests__/fixtures/`), y comprueban que el plugin nunca envía ni una
+pulsación ni un clic al equipo.
 
 ## Estructura
 

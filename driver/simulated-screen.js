@@ -4,7 +4,7 @@
 // same label reading and trace extraction as a real unit.
 
 import { GLYPHS } from './glyphs.js';
-import { COLUMNS, LABELS, PLOT, SCREEN } from './layout.js';
+import { BOTTOM_LABEL_ROW, LEFT_LABELS, PLOT_FULL_WIDTH, SCREEN, columnsOf } from './layout.js';
 
 const W = SCREEN.width;
 const H = SCREEN.height;
@@ -24,13 +24,15 @@ function vline(data, x, y0, y1, c) {
   for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y += 1) put(data, x, y, c);
 }
 
+const glyph = (ch) => GLYPHS[ch][0];
+
 function textWidth(text) {
-  return [...text].reduce((w, ch) => w + GLYPHS[ch].w + 1, -1);
+  return [...text].reduce((w, ch) => w + glyph(ch).w + 1, -1);
 }
 
 function drawText(data, x, y, text) {
   for (const ch of text) {
-    const g = GLYPHS[ch];
+    const g = glyph(ch);
     for (let r = 0; r < g.h; r += 1) {
       for (let c = 0; c < g.w; c += 1) {
         const v = g.lum[r * g.w + c];
@@ -41,8 +43,10 @@ function drawText(data, x, y, text) {
   }
 }
 
-/** A plausible spectrum for the simulated device: noise floor and carriers. */
+/** A plausible spectrum for the simulated device: noise floor and carriers,
+ *  one value per column of the plot (axes.plot, full width by default). */
 export function simulatedSpectrum(axes, t = 0, seed = 1) {
+  const COLUMNS = columnsOf(axes.plot ?? PLOT_FULL_WIDTH);
   let s = seed * 9301 + Math.floor(t * 1000);
   const rand = () => {
     s = (s * 1103515245 + 12345) & 0x7fffffff;
@@ -67,9 +71,12 @@ export function simulatedSpectrum(axes, t = 0, seed = 1) {
 
 /**
  * The full 1280x800 screen, as B, G, R, X bytes.
- * axes: { startHz, stopHz, topDbm, bottomDbm }; amps: COLUMNS values in dBm.
+ * axes: { startHz, stopHz, topDbm, bottomDbm, plot? } - plot defaults to the
+ * full-width layout (side menu hidden); amps: one value per plot column, dBm.
  */
 export function renderScreen(axes, amps, data = new Uint8Array(W * H * 4)) {
+  const PLOT = axes.plot ?? PLOT_FULL_WIDTH;
+  const COLUMNS = columnsOf(PLOT);
   data.fill(0);
   const grid = [55, 55, 60];
   const frame = [128, 128, 128];
@@ -77,9 +84,11 @@ export function renderScreen(axes, amps, data = new Uint8Array(W * H * 4)) {
     vline(data, Math.round(PLOT.left + (i * (PLOT.right - PLOT.left)) / 10), PLOT.top, PLOT.bottom, grid);
     hline(data, PLOT.left, PLOT.right, Math.round(PLOT.top + (i * (PLOT.bottom - PLOT.top)) / 10), grid);
   }
+  // the frame, two pixels wide as on the Pro; its right line starts at PLOT.right
   hline(data, PLOT.left - 1, PLOT.right + 1, PLOT.top - 1, frame);
   hline(data, PLOT.left - 1, PLOT.right + 1, PLOT.bottom, frame);
   vline(data, PLOT.left - 1, PLOT.top, PLOT.bottom, frame);
+  vline(data, PLOT.right, PLOT.top, PLOT.bottom, frame);
   vline(data, PLOT.right + 1, PLOT.top, PLOT.bottom, frame);
 
   // the trace: a connected yellow line, as the Pro draws it
@@ -99,7 +108,7 @@ export function renderScreen(axes, amps, data = new Uint8Array(W * H * 4)) {
   }
 
   // labels
-  const { x1, count } = LABELS.left;
+  const { x1, count } = LEFT_LABELS;
   const step = (axes.topDbm - axes.bottomDbm) / (count - 1);
   for (let i = 0; i < count; i += 1) {
     const text = (axes.topDbm - i * step).toFixed(1);
@@ -107,11 +116,11 @@ export function renderScreen(axes, amps, data = new Uint8Array(W * H * 4)) {
     drawText(data, x1 - 2 - textWidth(text), Math.round(cy - 4.5), text);
   }
   const mhz = (hz) => (hz / 1e6).toFixed(3);
-  const y = LABELS.bottom.y0;
+  const y = BOTTOM_LABEL_ROW;
   drawText(data, 34, y, mhz(axes.startHz));
   const centre = mhz((axes.startHz + axes.stopHz) / 2);
-  drawText(data, 511 - Math.round(textWidth(centre) / 2), y, centre);
+  drawText(data, Math.round((PLOT.left + PLOT.right) / 2) - Math.round(textWidth(centre) / 2), y, centre);
   const stop = mhz(axes.stopHz);
-  drawText(data, 960 - textWidth(stop), y, stop);
+  drawText(data, PLOT.right - 5 - textWidth(stop), y, stop);
   return data;
 }

@@ -12,7 +12,7 @@
 import { writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { AxesUnreadable, readAxes } from '../driver/axes.js';
-import { COLUMNS } from '../driver/layout.js';
+import { columnsOf } from '../driver/layout.js';
 import { VncScreenSource } from '../driver/sources.js';
 import { TraceNotFound, columnHz, extractTrace } from '../driver/trace.js';
 
@@ -91,7 +91,10 @@ try {
   let axes = null;
   try {
     axes = readAxes(frame);
-    step('axis labels read', { startMHz: axes.startHz / 1e6, stopMHz: axes.stopHz / 1e6, topDbm: axes.topDbm, bottomDbm: axes.bottomDbm });
+    step('axis labels read', {
+      startMHz: axes.startHz / 1e6, stopMHz: axes.stopHz / 1e6, topDbm: axes.topDbm, bottomDbm: axes.bottomDbm,
+      plotRight: axes.plot.right, points: columnsOf(axes.plot),
+    });
   } catch (err) {
     if (!(err instanceof AxesUnreadable)) throw err;
     step('axis labels NOT readable', { reason: err.message });
@@ -113,7 +116,7 @@ try {
         const sorted = [...amps].sort((a, b) => a - b);
         step(`sweep ${n + 1}`, {
           waitedMs: Date.now() - t0,
-          points: COLUMNS,
+          points: columnsOf(axes.plot),
           peakDbm: Number(amps[peak].toFixed(1)),
           peakMHz: Number((columnHz(axes, peak) / 1e6).toFixed(3)),
           medianDbm: Number(sorted[Math.floor(sorted.length / 2)].toFixed(1)),

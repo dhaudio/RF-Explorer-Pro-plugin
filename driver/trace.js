@@ -1,18 +1,12 @@
 // Screen pixels -> trace in dBm.
 
-import {
-  COLOR_TOLERANCE,
-  COLUMNS,
-  IGNORE,
-  MIN_COVERAGE,
-  PLOT,
-  TRACE_COLORS,
-} from './layout.js';
+import { COLOR_TOLERANCE, IGNORE_LAST_COLUMNS, MIN_COVERAGE, TRACE_COLORS, columnsOf } from './layout.js';
 
 export class TraceNotFound extends Error {}
 
 /**
- * One amplitude per plot column, in dBm.
+ * One amplitude per plot column, in dBm. axes.plot is the plot rectangle the
+ * axes were read from (driver/axes.js).
  *
  * In each column, the trace pixels are those within COLOR_TOLERANCE of the
  * trace colour. `peak` takes the highest of them: the Pro draws a connected
@@ -22,6 +16,8 @@ export class TraceNotFound extends Error {}
  * Columns with no trace pixel (under a marker line) are interpolated.
  */
 export function extractTrace(frame, axes, { detector = 'peak' } = {}) {
+  const PLOT = axes.plot;
+  const COLUMNS = columnsOf(PLOT);
   const rows = PLOT.bottom - PLOT.top + 1;
   const row = new Float64Array(COLUMNS).fill(NaN);
   const tol2 = COLOR_TOLERANCE * COLOR_TOLERANCE;
@@ -29,7 +25,7 @@ export function extractTrace(frame, axes, { detector = 'peak' } = {}) {
   let found = 0;
   for (let c = 0; c < COLUMNS; c += 1) {
     const x = PLOT.left + c;
-    if (IGNORE.some(([l, t, r, b]) => x >= l && x <= r && t <= PLOT.top && b >= PLOT.bottom)) continue;
+    if (c >= COLUMNS - IGNORE_LAST_COLUMNS) continue;
     let first = -1;
     let sum = 0;
     let n = 0;
@@ -96,5 +92,5 @@ export function resamplePeak(amps, points) {
 
 /** Frequency of plot column c. */
 export function columnHz(axes, c) {
-  return axes.startHz + (c * (axes.stopHz - axes.startHz)) / (COLUMNS - 1);
+  return axes.startHz + (c * (axes.stopHz - axes.startHz)) / (columnsOf(axes.plot) - 1);
 }

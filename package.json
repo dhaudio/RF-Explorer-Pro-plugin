@@ -1,6 +1,6 @@
 {
   "name": "soundbase-plugin-rf-explorer-pro",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SoundBase plugin: RF Explorer Pro as a live spectrum analyzer, read from its screen over VNC.",
   "license": "BUSL-1.1",
   "type": "module",

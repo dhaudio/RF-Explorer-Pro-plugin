@@ -3,7 +3,7 @@
 
 import { createHash } from 'node:crypto';
 import { RfbClient, RfbError } from './rfb.js';
-import { PLOT, SCREEN } from './layout.js';
+import { PLOT_BOTTOM, PLOT_LEFT, PLOT_TOP, SCREEN } from './layout.js';
 import { renderScreen, simulatedSpectrum } from './simulated-screen.js';
 
 /** Least time between two screen requests: the Pro is a tablet, and the plot
@@ -37,12 +37,13 @@ export class VncScreenSource {
     return this.client.frame();
   }
 
-  /** A fingerprint of the plot area, to tell a new sweep from other screen changes. */
+  /** A fingerprint of the plot area (as wide as it can be), to tell a new
+   *  sweep from other screen changes. */
   plotHash() {
     const { data, width } = this.client.frame();
     const h = createHash('sha1');
-    for (let y = PLOT.top; y <= PLOT.bottom; y += 1) {
-      h.update(data.subarray((y * width + PLOT.left) * 4, (y * width + PLOT.right + 1) * 4));
+    for (let y = PLOT_TOP; y <= PLOT_BOTTOM; y += 1) {
+      h.update(data.subarray((y * width + PLOT_LEFT) * 4, (y + 1) * width * 4));
     }
     return h.digest('hex');
   }

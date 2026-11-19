@@ -4,17 +4,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { AxesUnreadable, readAxes } from '../driver/axes.js';
-import { COLUMNS, SCREEN } from '../driver/layout.js';
+import { PLOT_FULL_WIDTH, PLOT_WITH_MENU, SCREEN, columnsOf, findPlot } from '../driver/layout.js';
 import { TraceNotFound, extractTrace, resamplePeak } from '../driver/trace.js';
 import { renderScreen, simulatedSpectrum } from '../driver/simulated-screen.js';
 import { startFakeVnc } from '../driver/fake-vnc-server.js';
 import { RfbClient } from '../driver/rfb.js';
-import { realScreen } from './helpers.js';
+import { realScreen, realScreenWide } from './helpers.js';
 
-const REAL_AXES = { startHz: 469_886_000, stopHz: 700_086_000, topDbm: -16.4, bottomDbm: -118.9 };
+const REAL_AXES = { startHz: 469_886_000, stopHz: 700_086_000, topDbm: -16.4, bottomDbm: -118.9, plot: PLOT_WITH_MENU };
+const WIDE_AXES = { startHz: 469_811_000, stopHz: 900_011_000, topDbm: -16.4, bottomDbm: -118.9, plot: PLOT_FULL_WIDTH };
+const COLUMNS = columnsOf(PLOT_WITH_MENU);
 
 test('the axis labels of a real Pro screen are read exactly', () => {
   assert.deepEqual(readAxes(realScreen()), REAL_AXES);
+});
+
+test('the side menu hidden: the wider plot and its labels are found', () => {
+  assert.deepEqual(findPlot(realScreenWide()), PLOT_FULL_WIDTH);
+  assert.deepEqual(findPlot(realScreen()), PLOT_WITH_MENU);
+  assert.deepEqual(readAxes(realScreenWide()), WIDE_AXES);
+  const amps = extractTrace(realScreenWide(), WIDE_AXES);
+  assert.equal(amps.length, 1181);
+  // the strongest carrier of that screen, around 544 MHz, near -45 dBm
+  const peak = amps.indexOf(Math.max(...amps));
+  const hz = WIDE_AXES.startHz + (peak * (WIDE_AXES.stopHz - WIDE_AXES.startHz)) / 1180;
+  assert.ok(hz > 540e6 && hz < 548e6, String(hz));
+  assert.ok(Math.max(...amps) > -47 && Math.max(...amps) < -43);
 });
 
 test('the trace of a real Pro screen matches the reference extraction', () => {
@@ -34,17 +49,17 @@ test('the center detector never reads above the peak detector', () => {
 });
 
 for (const axes of [
-  { startHz: 469_843_000, stopHz: 900_043_000, topDbm: -16.4, bottomDbm: -118.9 },
-  { startHz: 470_000_000, stopHz: 608_000_000, topDbm: -20, bottomDbm: -120 },
-  { startHz: 1_234_567_000, stopHz: 1_300_000_000, topDbm: 0, bottomDbm: -100.5 },
+  { startHz: 469_843_000, stopHz: 900_043_000, topDbm: -16.4, bottomDbm: -118.9, plot: PLOT_FULL_WIDTH },
+  { startHz: 470_000_000, stopHz: 608_000_000, topDbm: -20, bottomDbm: -120, plot: PLOT_WITH_MENU },
+  { startHz: 1_234_567_000, stopHz: 1_300_000_000, topDbm: 0, bottomDbm: -100.5, plot: PLOT_FULL_WIDTH },
 ]) {
-  test(`a drawn screen at ${axes.startHz / 1e6}-${axes.stopHz / 1e6} MHz reads back`, () => {
+  test(`a drawn screen at ${axes.startHz / 1e6}-${axes.stopHz / 1e6} MHz, ${columnsOf(axes.plot)} columns, reads back`, () => {
     const amps = simulatedSpectrum(axes, 0);
     const frame = { width: 1280, height: 800, data: renderScreen(axes, amps) };
     assert.deepEqual(readAxes(frame), axes);
     const read = extractTrace(frame, axes);
     const dbPerPixel = (axes.topDbm - axes.bottomDbm) / 457;
-    for (let i = 0; i < COLUMNS - 5; i += 1) {
+    for (let i = 0; i < columnsOf(axes.plot) - 5; i += 1) {
       if (amps[i] < axes.bottomDbm) continue;
       assert.ok(read[i] >= amps[i] - dbPerPixel, `column ${i} reads low`);
     }
@@ -58,7 +73,7 @@ test('a screen that is not the analyzer is reported, not guessed', () => {
 });
 
 test('labels that disagree with each other are rejected', () => {
-  const axes = { startHz: 470_000_000, stopHz: 608_000_000, topDbm: -20, bottomDbm: -120 };
+  const axes = { startHz: 470_000_000, stopHz: 608_000_000, topDbm: -20, bottomDbm: -120, plot: PLOT_WITH_MENU };
   const data = renderScreen(axes, simulatedSpectrum(axes, 0));
   // wipe the centre frequency label and draw a wrong one
   const other = renderScreen({ ...axes, startHz: 400_000_000 }, simulatedSpectrum(axes, 0));
@@ -68,7 +83,7 @@ test('labels that disagree with each other are rejected', () => {
       data.set(other.subarray(i, i + 4), i);
     }
   }
-  assert.throws(() => readAxes({ width: 1280, height: 800, data }), /halfway/);
+  assert.throws(() => readAxes({ width: 1280, height: 800, data }), /do not agree/);
 });
 
 test('fewer points keep the maximum of each share', () => {
@@ -92,10 +107,10 @@ test('the VNC client receives the screen and its changes, and never sends input'
   assert.deepEqual(readAxes(client.frame()), REAL_AXES);
 
   // nothing changed: an incremental request waits
-  assert.equal(await client.update({ x: 0, y: 28, w: 1010, h: 490, timeoutMs: 300 }), false);
+  assert.equal(await client.update({ timeoutMs: 300 }), false);
   // the screen changes: the waiting request is answered
-  const axes = { startHz: 470_000_000, stopHz: 608_000_000, topDbm: -20, bottomDbm: -120 };
-  const pending = client.update({ x: 0, y: 28, w: 1010, h: 490, timeoutMs: 3_000 });
+  const axes = { startHz: 470_000_000, stopHz: 608_000_000, topDbm: -20, bottomDbm: -120, plot: PLOT_FULL_WIDTH };
+  const pending = client.update({ timeoutMs: 3_000 });
   screen = renderScreen(axes, simulatedSpectrum(axes, 0));
   server.changed();
   assert.equal(await pending, true);
