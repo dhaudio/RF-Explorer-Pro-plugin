@@ -172,3 +172,41 @@ test('the firmware version is read from the screen', async () => {
   assert.equal(readFirmware(realScreen()), '1.25');
   assert.equal(readFirmware({ width: 1280, height: 800, data: new Uint8Array(1280 * 800 * 4) }), null);
 });
+
+test('a plot moved a few pixels (another firmware) is still found and read', () => {
+  const plot = { left: 60, top: 45, right: 1228, bottom: 502 };
+  const axes = { startHz: 470_000_000, stopHz: 700_000_000, topDbm: -20, bottomDbm: -120, plot };
+  const frame = { width: 1280, height: 800, data: renderScreen(axes, simulatedSpectrum(axes, 0)) };
+  assert.deepEqual(findPlot(frame), plot);
+  assert.deepEqual(readAxes(frame), axes);
+});
+
+test('grid lines are never taken for the frame', () => {
+  // the real screens have grid lines every ~91 px; the frame is found past them
+  assert.equal(findPlot(realScreen()).right, 965);
+  assert.equal(findPlot(realScreenWide()).right, 1235);
+});
+
+test('with no recognisable frame, the trace tells which layout it is', async () => {
+  const { guessPlot } = await import('../driver/layout.js');
+  for (const plot of [PLOT_WITH_MENU, PLOT_FULL_WIDTH]) {
+    const axes = { startHz: 470e6, stopHz: 700e6, topDbm: -20, bottomDbm: -120, plot };
+    const data = renderScreen(axes, simulatedSpectrum(axes, 0));
+    eraseFrame(data, plot);
+    const frame = { width: 1280, height: 800, data };
+    assert.equal(findPlot(frame), null);
+    assert.deepEqual(guessPlot(frame), plot);
+  }
+});
+
+export function eraseFrame(data, plot) {
+  for (let y = 0; y < 800; y += 1) {
+    for (let x = 0; x < 1280; x += 1) {
+      const i = (y * 1280 + x) * 4;
+      const grey = data[i] === data[i + 1] && data[i + 1] === data[i + 2] && data[i] >= 100;
+      if (grey && (x <= plot.left || x >= plot.right - 1 || y <= plot.top || y >= plot.bottom - 1)) {
+        data[i] = data[i + 1] = data[i + 2] = 0;
+      }
+    }
+  }
+}

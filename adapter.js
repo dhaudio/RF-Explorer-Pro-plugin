@@ -16,7 +16,11 @@
 // any part of the span the Pro displays; asking for more is clamped to it.
 
 import { AxesUnreadable, readAxes, readFirmware, sameAxes } from './driver/axes.js';
-import { columnsOf, findPlot } from './driver/layout.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { columnsOf, findPlot, guessPlot } from './driver/layout.js';
+import { encodePng } from './driver/png.js';
 import { SimulatedScreenSource, VncScreenSource } from './driver/sources.js';
 import { TraceNotFound, columnHz, extractTrace, resamplePeak } from './driver/trace.js';
 
@@ -144,12 +148,15 @@ class RfExplorerProAdapter {
     }
 
     this.plot = findPlot(frame);
+    this.lastFrame = frame;
     try {
       this.screenAxes = readAxes(frame);
     } catch (err) {
       if (!(err instanceof AxesUnreadable)) throw err;
       this.screenAxes = null;
+      this.unreadableReason = err.message;
       logLine('warn', `axis labels unreadable at open: ${err.message}`);
+      this.saveDiagnostic(frame);
     }
     this.axes = withOverrides(this.screenAxes, this.controls, this.plot);
     if (this.axes) {
@@ -157,7 +164,7 @@ class RfExplorerProAdapter {
         `${this.axes.topDbm} to ${this.axes.bottomDbm} dBm`);
       this.clearWarning('axes');
     } else {
-      this.setWarning('axes', 'critical', unreadableMessage());
+      this.setWarning('axes', 'critical', this.unreadableMessage());
     }
 
     const lo = this.axes?.startHz ?? 100_000;
@@ -208,11 +215,14 @@ class RfExplorerProAdapter {
     if (this.source && !this.sweeping) {
       await this.source.refresh();
       const frame = this.source.frame();
+      this.lastFrame = frame;
       let now = null;
       try {
         now = readAxes(frame);
       } catch (err) {
         if (!(err instanceof AxesUnreadable)) throw err;
+        this.unreadableReason = err.message;
+        if (!this.screenAxes) this.saveDiagnostic(frame);
       }
       const plotNow = now?.plot ?? findPlot(frame);
       if (now && !this.screenAxes && this.adoptAxes(now)) {
@@ -230,11 +240,14 @@ class RfExplorerProAdapter {
     }
     this.controls = { ...(cfg.controls ?? {}) };
     this.detector = this.controls.detector === 'center' ? 'center' : 'peak';
-    this.axes = withOverrides(this.screenAxes, this.controls, this.plot);
+    // with manual axis values, a frame that cannot be found must not block them
+    const plot = this.plot ?? (this.lastFrame ? guessPlot(this.lastFrame) : null);
+    this.axes = withOverrides(this.screenAxes, this.controls, plot);
     if (!this.axes) {
-      this.setWarning('axes', 'critical', unreadableMessage());
-      throw new Error(unreadableMessage());
+      this.setWarning('axes', 'critical', this.unreadableMessage());
+      throw new Error(this.unreadableMessage());
     }
+    if (!this.plot) this.plot = this.axes.plot;
     this.clearWarning('axes');
     const ax = this.axes;
     const COLUMNS = columnsOf(ax.plot);
@@ -389,6 +402,36 @@ class RfExplorerProAdapter {
     return true;
   }
 
+  /**
+   * Save the screen as the plugin saw it, once per connection, so a user can
+   * send it with a report: a picture is what it takes to fix a new screen layout.
+   */
+  saveDiagnostic(frame) {
+    if (this.diagnosticPath) return;
+    try {
+      const dir = join(tmpdir(), 'rf-explorer-pro-plugin');
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, `screen-${new Date().toISOString().replace(/[:.]/g, '-')}.png`);
+      writeFileSync(path, encodePng(frame));
+      this.diagnosticPath = path;
+      logLine('warn', `the screen as the plugin saw it was saved to ${path}`);
+    } catch (err) {
+      logLine('warn', `could not save the screen picture: ${err.message}`);
+    }
+  }
+
+  unreadableMessage() {
+    const why = this.unreadableReason ? ` (${this.unreadableReason})` : '';
+    const pic = this.diagnosticPath
+      ? ` A picture of the screen as the plugin sees it is at ${this.diagnosticPath} - please send it with a report.`
+      : '';
+    return (
+      `The plugin cannot read the frequency and level labels on the RF Explorer Pro's screen${why}. ` +
+      'Put the Pro on its spectrum analyzer screen (LIVE, no menu open). If it still fails, type ' +
+      `the four axis values shown on the Pro into the "manual" controls.${pic}`
+    );
+  }
+
   axesFullyManual() {
     const c = this.controls;
     return ['axisStartMHz', 'axisStopMHz', 'axisTopDbm', 'axisBottomDbm'].every((id) => isNum(c[id]));
@@ -417,13 +460,6 @@ function changeError(axes, plot) {
   return new Error(`The RF Explorer Pro ${what}${points}. Reconnecting to use it.`);
 }
 
-function unreadableMessage() {
-  return (
-    'The plugin cannot read the frequency and level labels on the RF Explorer Pro\'s screen. ' +
-    'Put the Pro on its spectrum analyzer screen (LIVE, no menu open). If it still fails, type ' +
-    'the four axis values shown on the Pro into the "manual" controls.'
-  );
-}
 
 // Exported for the tests.
 export const _internals = { withOverrides };

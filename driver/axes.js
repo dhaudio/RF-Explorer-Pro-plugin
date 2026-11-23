@@ -12,7 +12,7 @@
 
 import { createHash } from 'node:crypto';
 import { GLYPHS } from './glyphs.js';
-import { BOTTOM_LABEL_ROW, LEFT_LABELS, findPlot, luminance } from './layout.js';
+import { bottomLabelRow, findPlot, leftLabels, luminance } from './layout.js';
 
 const ROW_INK = 90; // luminance above which a pixel is text
 const SEG_INK = 130; // stricter, to split glyphs
@@ -140,7 +140,7 @@ function snapLabelRow(frame, y, x0, x1) {
 }
 
 function decodeLevels(frame, PLOT) {
-  const { x0, x1, count } = LEFT_LABELS;
+  const { x0, x1, count } = leftLabels(PLOT);
   const labels = [];
   for (let i = 0; i < count; i += 1) {
     const cy = PLOT.top - 0.5 + (i * (PLOT.bottom - PLOT.top + 0.5)) / (count - 1);
@@ -173,7 +173,7 @@ function decodeLevels(frame, PLOT) {
 }
 
 function decodeFrequencies(frame, PLOT) {
-  const y0 = BOTTOM_LABEL_ROW;
+  const y0 = bottomLabelRow(PLOT);
   const mid = Math.round((PLOT.left + PLOT.right) / 2);
   const read = (x0, x1) => {
     const first = segments(frame, y0, x0, x1)[0];
@@ -213,9 +213,10 @@ function labelKey(frame, PLOT) {
   const rows = (y0, y1, x0, x1) => {
     for (let y = y0; y < y1; y += 1) h.update(data.subarray((y * width + x0) * 4, (y * width + x1) * 4));
   };
-  rows(PLOT.top - 10, PLOT.bottom + 10, LEFT_LABELS.x0, LEFT_LABELS.x1);
-  rows(BOTTOM_LABEL_ROW, BOTTOM_LABEL_ROW + LINE_HEIGHT, 0, width);
-  h.update(String(PLOT.right));
+  const left = leftLabels(PLOT);
+  rows(PLOT.top - 10, PLOT.bottom + 10, left.x0, left.x1);
+  rows(bottomLabelRow(PLOT), bottomLabelRow(PLOT) + LINE_HEIGHT, 0, width);
+  h.update(JSON.stringify(PLOT));
   return h.digest('hex');
 }
 

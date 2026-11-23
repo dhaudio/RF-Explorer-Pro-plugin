@@ -251,6 +251,50 @@ test('a VNC server that sends the screen in pieces does not cause reconnects', a
   assert.equal((d.capabilities ?? {}).minFrequencyHz, 469_811_000, 'opened with the range read off the screen');
 });
 
+test('an unrecognisable screen: the reason and a picture are given, and manual values still work', async (t) => {
+  const { PLOT_FULL_WIDTH } = await import('../driver/layout.js');
+  const axes = { startHz: 470e6, stopHz: 700e6, topDbm: -20, bottomDbm: -120, plot: PLOT_FULL_WIDTH };
+  const data = renderScreen(axes, simulatedSpectrum(axes, 0));
+  // no frame and no labels: as if a firmware drew them differently
+  for (let y = 0; y < 800; y += 1) {
+    for (let x = 0; x < 1280; x += 1) {
+      const i = (y * 1280 + x) * 4;
+      const yellow = data[i + 2] > 200 && data[i + 1] > 200 && data[i] < 80;
+      if (!yellow) data[i] = data[i + 1] = data[i + 2] = 0;
+    }
+  }
+  const other = await startFakeVnc({ frame: () => data });
+  t.after(() => other.close());
+  const timer = setInterval(() => {
+    data[(300 * 1280 + 700) * 4] ^= 1;
+    other.changed();
+  }, 80);
+  t.after(() => clearInterval(timer));
+  const id = `net:${other.host}:unknown-layout`;
+  const path = `/devices/${encodeURIComponent(id)}`;
+  await request('POST', '/devices', { id, product: PRODUCT, config: { host: other.host, port: other.port } });
+  t.after(() => request('DELETE', path));
+
+  const bad = await configure({}, path);
+  assert.notEqual(bad.status, 200);
+  const text = JSON.stringify(bad.body);
+  assert.match(text, /analyzer plot is not on the screen/);
+  const pic = /at (\S+\.png)/.exec(text)?.[1];
+  assert.ok(pic, text);
+  const { existsSync } = await import('node:fs');
+  assert.ok(existsSync(pic), pic);
+
+  const manual = await configure({
+    controls: { axisStartMHz: 470, axisStopMHz: 700, axisTopDbm: -20, axisBottomDbm: -120 },
+  }, path);
+  assert.equal(manual.status, 200, JSON.stringify(manual.body));
+  assert.equal(manual.body.pointCount, 1181);
+  await sweeping(t, path);
+  const tr = await traceAfter(0, path);
+  assert.equal(tr.status, 200);
+  assert.ok(Math.max(...tr.body.amplitudesDbm) > -50);
+});
+
 test('a frozen screen (Hold on the Pro) raises a critical warning', async (t) => {
   clearInterval(animate);
   await configure({ startHz: 0, stopHz: 1e10 });

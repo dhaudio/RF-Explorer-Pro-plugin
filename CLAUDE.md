@@ -21,8 +21,15 @@ pointer event) and reads the analyzer plot.
   decoded together under the screen's constraints (even dBm steps, centre =
   mid-span). Results are cached while the label pixels do not change.
 - The plot's right edge moves with the Pro's side menu (x=965 with it, 1235
-  without): `findPlot()` in `driver/layout.js` finds it on every frame, and a
-  change of width reopens the device.
+  without): `findPlot()` in `driver/layout.js` finds all four edges on every
+  frame (frame lines are 2 px thick, the bottom one bright; grid lines are
+  1 px), and a change of width reopens the device. Label positions are
+  relative to the plot. With no frame found, `guessPlot()` picks a layout from
+  the trace so manual axis values still work.
+- When the labels cannot be read, the adapter saves the screen as a PNG
+  (`driver/png.js`) under `os.tmpdir()/rf-explorer-pro-plugin/` and puts the
+  reason and the path in the warning: that picture is how a new firmware's
+  layout gets supported.
 - `driver/trace.js` takes the yellow real-time trace, one point per plot column.
 - `driver/layout.js` holds the screen geometry for firmware 1.25 (1280x800).
 - A range change on the Pro is noticed while sweeping and in `applyConfig`;

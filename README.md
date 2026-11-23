@@ -60,7 +60,14 @@ En los controles del live scan aparecen:
   marcadores sobre el ruido, a costa de unos 2 dB en los picos.
 - **Pro start / stop / top / bottom (manual)**: se dejan **vacíos**. Solo hacen
   falta si el plugin avisa de que no puede leer los ejes; entonces se escriben
-  los números que muestra el Pro.
+  los números que muestra el Pro (los cuatro). Funcionan aunque el plugin no
+  reconozca el marco del gráfico.
+
+Si el plugin no puede leer la pantalla, el aviso dice el motivo y **guarda una
+captura de lo que ve** (`screen-<fecha>.png` en la carpeta temporal del sistema,
+dentro de `rf-explorer-pro-plugin`; la ruta exacta sale en el aviso y en el
+log). Envía esa imagen con tu versión de firmware en un informe: es lo que hace
+falta para adaptar el plugin a una pantalla distinta.
 
 ## Limitaciones
 
@@ -75,9 +82,10 @@ En los controles del live scan aparecen:
   Pro. En SoundBase se puede ver cualquier parte del span del Pro, pero no más.
 - **Las líneas de los marcadores tapan columnas**; esas columnas se rellenan
   interpolando. Con menos marcadores en pantalla, mejor.
-- **Hecho para la pantalla de 1280×800 del firmware 1.25.** Si un firmware
-  cambia la disposición o la fuente de los números, hay que actualizar
-  `driver/layout.js` o `driver/glyphs.js`.
+- **Hecho y probado con la pantalla de 1280×800 del firmware 1.25.** El marco
+  del gráfico se busca en cada pantalla, así que tolera que se mueva unos
+  píxeles; si un firmware cambia la fuente de los números, hay que actualizar
+  `driver/glyphs.js` con una captura.
 
 ## Probarlo con tu RF Explorer Pro
 

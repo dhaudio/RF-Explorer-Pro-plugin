@@ -4,7 +4,7 @@
 // same label reading and trace extraction as a real unit.
 
 import { GLYPHS } from './glyphs.js';
-import { BOTTOM_LABEL_ROW, LEFT_LABELS, PLOT_FULL_WIDTH, SCREEN, columnsOf } from './layout.js';
+import { PLOT_FULL_WIDTH, SCREEN, bottomLabelRow, columnsOf, leftLabels } from './layout.js';
 
 const W = SCREEN.width;
 const H = SCREEN.height;
@@ -84,10 +84,14 @@ export function renderScreen(axes, amps, data = new Uint8Array(W * H * 4)) {
     vline(data, Math.round(PLOT.left + (i * (PLOT.right - PLOT.left)) / 10), PLOT.top, PLOT.bottom, grid);
     hline(data, PLOT.left, PLOT.right, Math.round(PLOT.top + (i * (PLOT.bottom - PLOT.top)) / 10), grid);
   }
-  // the frame, two pixels wide as on the Pro; its right line starts at PLOT.right
+  // the frame as the Pro draws it (measured on firmware 1.25): sides and top
+  // two pixels thick in grey, bottom one light line
+  const light = [229, 229, 229];
   hline(data, PLOT.left - 1, PLOT.right + 1, PLOT.top - 1, frame);
-  hline(data, PLOT.left - 1, PLOT.right + 1, PLOT.bottom, frame);
+  hline(data, PLOT.left - 1, PLOT.right + 1, PLOT.top, frame);
+  hline(data, PLOT.left - 1, PLOT.right + 1, PLOT.bottom, light);
   vline(data, PLOT.left - 1, PLOT.top, PLOT.bottom, frame);
+  vline(data, PLOT.left, PLOT.top, PLOT.bottom, frame);
   vline(data, PLOT.right, PLOT.top, PLOT.bottom, frame);
   vline(data, PLOT.right + 1, PLOT.top, PLOT.bottom, frame);
 
@@ -108,7 +112,7 @@ export function renderScreen(axes, amps, data = new Uint8Array(W * H * 4)) {
   }
 
   // labels
-  const { x1, count } = LEFT_LABELS;
+  const { x1, count } = leftLabels(PLOT);
   const step = (axes.topDbm - axes.bottomDbm) / (count - 1);
   for (let i = 0; i < count; i += 1) {
     const text = (axes.topDbm - i * step).toFixed(1);
@@ -116,8 +120,8 @@ export function renderScreen(axes, amps, data = new Uint8Array(W * H * 4)) {
     drawText(data, x1 - 2 - textWidth(text), Math.round(cy - 4.5), text);
   }
   const mhz = (hz) => (hz / 1e6).toFixed(3);
-  const y = BOTTOM_LABEL_ROW;
-  drawText(data, 34, y, mhz(axes.startHz));
+  const y = bottomLabelRow(PLOT);
+  drawText(data, PLOT.left - 21, y, mhz(axes.startHz));
   const centre = mhz((axes.startHz + axes.stopHz) / 2);
   drawText(data, Math.round((PLOT.left + PLOT.right) / 2) - Math.round(textWidth(centre) / 2), y, centre);
   const stop = mhz(axes.stopHz);
